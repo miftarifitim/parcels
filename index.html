@@ -22,19 +22,36 @@ pre{white-space:pre-wrap;word-break:break-all;font:13px/1.5 ui-monospace,monospa
 input{font:inherit;width:100%;padding:12px;border-radius:8px;border:2px solid var(--line);background:var(--card);color:var(--ink)}
 .pt{display:flex;justify-content:space-between;font:14px ui-monospace,monospace;padding:6px 0;border-bottom:1px solid var(--line)}
 .hide{display:none}
+.spin{width:20px;height:20px;border:3px solid var(--line);border-top-color:var(--rec);border-radius:50%;animation:sp .8s linear infinite;flex:none}
+@keyframes sp{to{transform:rotate(360deg)}}
 </style></head><body>
 
 <section id="home">
   <h1>Parcelat</h1>
+  <div class="card" id="tips">
+    <b>Para se të matësh</b>
+    <ul style="margin:8px 0 12px;padding-left:20px">
+      <li>Në cilësimet e telefonit, aktivizo vendndodhjen me saktësi të lartë dhe çaktivizo kursimin e baterisë.</li>
+      <li>Dil jashtë, hape aplikacionin dhe prit rreth 1 minutë para pikës së parë.</li>
+      <li>Mbaje telefonin larg trupit dhe mos lëviz gjatë matjes.</li>
+      <li>Qëndro në hapësirë të hapur, larg mureve, pemëve dhe çative metalike.</li>
+      <li>Për saktësi më të mirë, rimato çdo pikë pas 10 minutash ose më shumë.</li>
+    </ul>
+    <button onclick="tip(false)">Në rregull</button>
+  </div>
   <button onclick="newParcel()">Parcelë e re</button>
+  <button class="sec" id="tipbtn" onclick="tip(true)">Këshilla për GPS</button>
   <div id="list"></div>
 </section>
 
 <section id="rec" class="hide">
   <h1 id="rtitle">Parcelë e re</h1>
   <input id="pname" placeholder="Emri i parcelës">
-  <button class="rec" id="recbtn" onclick="record()">Regjistro koordinatën</button>
-  <div class="card hide" id="live"><b id="lt"></b><div class="mut" id="ld"></div><button class="sec" onclick="finish()">Prano tani</button></div>
+  <button class="rec" id="recbtn" onclick="record(null)">Regjistro koordinatën</button>
+  <div class="card hide" id="live"><div style="display:flex;align-items:center;gap:10px"><div class="spin"></div><b id="lt"></b></div>
+    <div style="height:12px;border-radius:6px;background:var(--line);overflow:hidden;margin:10px 0"><div id="bar" style="height:100%;width:0;background:var(--rec);border-radius:6px;transition:width .25s linear"></div></div>
+    <div class="mut" id="ld"></div><button class="sec" onclick="finish()">Prano tani</button></div>
+  <div class="mut" id="geo" style="font-weight:600"></div>
   <div class="mut" id="status">Pika të regjistruara: 0</div>
   <div class="card" id="pts"></div>
   <button onclick="save()">Ruaj koordinatat</button>
@@ -44,15 +61,35 @@ input{font:inherit;width:100%;padding:12px;border-radius:8px;border:2px solid va
 
 <script>
 const KEY='parcels_v1',WINDOW=20000,GOOD=5;
-let parcels=[],cur=null,orig=0,watch=null,tmr=null,reads=[],t0=0;
+let tick=null,target=null,parcels=[],cur=null,orig=0,watch=null,tmr=null,reads=[],t0=0;
 try{parcels=JSON.parse(localStorage.getItem(KEY)||'[]')}catch(e){}
 const $=id=>document.getElementById(id);
 const persist=()=>{try{localStorage.setItem(KEY,JSON.stringify(parcels))}catch(e){}};
 const show=v=>{$('home').classList.toggle('hide',v!=='home');$('rec').classList.toggle('hide',v!=='rec')};
 
+function proj(pts){const k=Math.cos(pts[0].lat*Math.PI/180);return pts.map(p=>[(p.lon-pts[0].lon)*111320*k,(p.lat-pts[0].lat)*110540])}
+function geom(pts){
+  if(pts.length<3)return null;
+  const q=proj(pts);let per=0,a=0;
+  for(let i=0;i<q.length;i++){const j=(i+1)%q.length;per+=Math.hypot(q[j][0]-q[i][0],q[j][1]-q[i][1]);a+=q[i][0]*q[j][1]-q[j][0]*q[i][1]}
+  return{per:per,area:Math.abs(a)/2};
+}
+function fmtG(g){return g?('Perimetri '+g.per.toFixed(1)+' m · Sipërfaqja '+g.area.toFixed(1)+' m² ('+(g.area/10000).toFixed(4)+' ha)'):''}
+function spread(p){
+  if(!p.v||p.v.length<2)return 0;
+  const q=proj(p.v);let m=0;
+  for(let i=0;i<q.length;i++)for(let j=i+1;j<q.length;j++)m=Math.max(m,Math.hypot(q[i][0]-q[j][0],q[i][1]-q[j][1]));
+  return m;
+}
+function merge(p){
+  let w=0,la=0,lo=0,n=0,b=99;
+  p.v.forEach(x=>{const k=1/(x.acc*x.acc);w+=k;la+=x.lat*k;lo+=x.lon*k;n+=x.n||1;b=Math.min(b,x.acc)});
+  p.lat=la/w;p.lon=lo/w;p.n=n;p.acc=b;
+}
 function toText(p){
-  return p.name+' ('+p.date+') WGS84\nPoint,Lat,Lon,Acc_m,Readings\n'+
-    p.points.map((q,i)=>(i+1)+','+q.lat.toFixed(8)+','+q.lon.toFixed(8)+','+q.acc.toFixed(1)+','+(q.n||1)).join('\n');
+  const g=fmtG(geom(p.points));
+  return p.name+' ('+p.date+') WGS84'+(g?' | '+g:'')+'\nPoint,Lat,Lon,Acc_m,Readings,Visits,Spread_m\n'+
+    p.points.map((q,i)=>(i+1)+','+q.lat.toFixed(8)+','+q.lon.toFixed(8)+','+q.acc.toFixed(1)+','+(q.n||1)+','+(q.v?q.v.length:1)+','+spread(q).toFixed(1)).join('\n');
 }
 function render(){
   $('list').innerHTML=parcels.length?'':'<p class="mut">Nuk ka parcela ende. Shtyp "Parcelë e re" për të filluar.</p>';
@@ -80,28 +117,41 @@ function edit(id){const p=parcels.find(x=>x.id===id);cur=JSON.parse(JSON.stringi
 function cancel(){stop();if(cur.points.length===orig||confirm('Të hidhen poshtë ndryshimet?')){cur=null;show('home')}}
 function draw(){
   $('status').textContent='Pika të regjistruara: '+cur.points.length;
-  $('pts').innerHTML=cur.points.length?cur.points.map((q,i)=>
-    '<div class="pt"><span>'+(i+1)+'</span><span>'+q.lat.toFixed(7)+', '+q.lon.toFixed(7)+'</span><span>±'+q.acc.toFixed(1)+'m</span></div>').join('')
-    :'<span class="mut">Qëndro në një kënd dhe shtyp "Regjistro koordinatën".</span>';
+  $('geo').textContent=fmtG(geom(cur.points));
+  $('pts').innerHTML=cur.points.length?cur.points.map((q,i)=>{
+    const sp=spread(q),vn=q.v?q.v.length:1;
+    return '<div class="pt" style="flex-wrap:wrap;gap:4px"><span>'+(i+1)+'</span><span>'+q.lat.toFixed(7)+', '+q.lon.toFixed(7)+'</span><span>±'+q.acc.toFixed(1)+'m</span>'+
+    '<span style="width:100%;display:flex;justify-content:space-between;align-items:center;font-family:system-ui"><span class="mut" '+(sp>5?'style="color:var(--rec);font-weight:700"':'')+'>'+vn+(vn>1?' vizita · ndryshim '+sp.toFixed(1)+' m':' vizitë')+'</span>'+
+    '<button class="sm sec" onclick="record('+i+')">Rimato</button></span></div>';
+  }).join(''):'<span class="mut">Qëndro në një kënd dhe shtyp "Regjistro koordinatën".</span>';
 }
 
 // Averaged fix: collect GPS readings for up to 20 s, keep the best ones, weight by 1/acc^2
-function record(){
+function record(t){
+  if(watch!==null)return;
+  target=(t===undefined?null:t);
   if(!navigator.geolocation){alert('GPS nuk është i disponueshëm');return}
   reads=[];t0=Date.now();
   $('recbtn').disabled=true;$('recbtn').textContent='Po mesatarizohet… mos lëviz';
   $('live').classList.remove('hide');$('lt').textContent='Po pritet GPS…';$('ld').textContent='';
+  upd();tick=setInterval(upd,250);
   watch=navigator.geolocation.watchPosition(pos=>{
     const c=pos.coords;reads.push({lat:c.latitude,lon:c.longitude,acc:c.accuracy||99});
     const best=Math.min(...reads.map(r=>r.acc));
     $('lt').textContent='Saktësia më e mirë ±'+best.toFixed(1)+' m';
-    $('ld').textContent=reads.length+' matje · '+Math.max(0,Math.ceil((WINDOW-(Date.now()-t0))/1000))+' s mbeten';
+    upd();
     if(reads.length>=12&&best<=GOOD&&Date.now()-t0>8000)finish();
   },err=>{stop();alert('Nuk u gjet sinjal GPS: '+err.message+'. Kontrollo lejen e vendndodhjes dhe provo jashtë.')},
   {enableHighAccuracy:true,timeout:30000,maximumAge:0});
   tmr=setTimeout(finish,WINDOW);
 }
+function upd(){
+  const e=Date.now()-t0;
+  $('bar').style.width=Math.min(100,e/WINDOW*100)+'%';
+  $('ld').textContent=reads.length+' matje · '+Math.max(0,Math.ceil((WINDOW-e)/1000))+' s mbeten';
+}
 function stop(){
+  clearInterval(tick);tick=null;$('bar').style.width='0';
   if(watch!==null)navigator.geolocation.clearWatch(watch);watch=null;
   clearTimeout(tmr);tmr=null;
   $('live').classList.add('hide');$('recbtn').disabled=false;$('recbtn').textContent='Regjistro koordinatën';
@@ -114,9 +164,17 @@ function finish(){
   let w=0,la=0,lo=0;
   use.forEach(x=>{const k=1/(x.acc*x.acc);w+=k;la+=x.lat*k;lo+=x.lon*k});
   const acc=best; // report best single-reading accuracy (conservative)
-  cur.points.push({lat:la/w,lon:lo/w,acc:acc,n:use.length});
+  const fix={lat:la/w,lon:lo/w,acc:best,n:use.length};
+  if(target===null)cur.points.push(Object.assign({},fix,{v:[fix]}));
+  else{
+    const p=cur.points[target];
+    if(!p.v)p.v=[{lat:p.lat,lon:p.lon,acc:p.acc,n:p.n||1}];
+    p.v.push(fix);merge(p);
+    const sp=spread(p);
+    if(sp>10)alert('Dy vizitat ndryshojnë '+sp.toFixed(0)+' m. Njëra matje është e keqe — rimato përsëri në hapësirë të hapur.');
+  }
   draw();
-  if(acc>10)alert('Saktësia vetëm ±'+acc.toFixed(0)+' m. Hiqe këtë pikë dhe rimati në hapësirë të hapur, larg mureve dhe pemëve.');
+  if(best>10)alert('Saktësia vetëm ±'+best.toFixed(0)+' m. Rimato këtë pikë në hapësirë të hapur, larg mureve dhe pemëve.');
 }
 function undo(){cur.points.pop();draw()}
 function save(){
@@ -128,6 +186,8 @@ function save(){
   if(i>=0)parcels[i]=cur;else parcels.push(cur);
   persist();cur=null;render();show('home');
 }
+function tip(v){$('tips').classList.toggle('hide',!v);$('tipbtn').classList.toggle('hide',v)}
+tip(true);
 render();
 if('serviceWorker' in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js').catch(()=>{});
 </script>
