@@ -32,8 +32,9 @@ input{font:inherit;width:100%;padding:12px;border-radius:8px;border:2px solid va
 
 <section id="rec" class="hide">
   <h1 id="rtitle">New parcel</h1>
-  <input id="pname" placeholder="Parcel name (optional)">
+  <input id="pname" placeholder="Parcel name">
   <button class="rec" id="recbtn" onclick="record()">Record coordinate</button>
+  <div class="card hide" id="live"><b id="lt"></b><div class="mut" id="ld"></div><button class="sec" onclick="finish()">Accept now</button></div>
   <div class="mut" id="status">Points recorded: 0</div>
   <div class="card" id="pts"></div>
   <button onclick="save()">Save coordinates</button>
@@ -42,17 +43,16 @@ input{font:inherit;width:100%;padding:12px;border-radius:8px;border:2px solid va
 </section>
 
 <script>
-const KEY='parcels_v1';
-let parcels=[],cur=null;
+const KEY='parcels_v1',WINDOW=20000,GOOD=5;
+let parcels=[],cur=null,orig=0,watch=null,tmr=null,reads=[],t0=0;
 try{parcels=JSON.parse(localStorage.getItem(KEY)||'[]')}catch(e){}
 const $=id=>document.getElementById(id);
 const persist=()=>{try{localStorage.setItem(KEY,JSON.stringify(parcels))}catch(e){}};
 const show=v=>{$('home').classList.toggle('hide',v!=='home');$('rec').classList.toggle('hide',v!=='rec')};
 
 function toText(p){
-  // Format: Name, then Point,Lat,Lon,Accuracy_m (WGS84, decimal degrees)
-  return p.name+' ('+p.date+') WGS84\nPoint,Lat,Lon,Acc_m\n'+
-    p.points.map((q,i)=>(i+1)+','+q.lat.toFixed(7)+','+q.lon.toFixed(7)+','+q.acc.toFixed(1)).join('\n');
+  return p.name+' ('+p.date+') WGS84\nPoint,Lat,Lon,Acc_m,Readings\n'+
+    p.points.map((q,i)=>(i+1)+','+q.lat.toFixed(8)+','+q.lon.toFixed(8)+','+q.acc.toFixed(1)+','+(q.n||1)).join('\n');
 }
 function render(){
   $('list').innerHTML=parcels.length?'':'<p class="mut">No parcels yet. Tap New parcel to start.</p>';
@@ -62,8 +62,8 @@ function render(){
     d.querySelector('b').textContent=p.name;
     d.querySelector('pre').textContent=toText(p);
     const row=document.createElement('div');
-    [['Copy',()=>copy(p)],['Share',()=>share(p)],['Delete',()=>del(p.id)]].forEach(([t,f])=>{
-      const b=document.createElement('button');b.className='sm sec';b.textContent=t;b.onclick=f;row.appendChild(b)});
+    [['Continue',()=>edit(p.id)],['Copy',()=>copy(p)],['Share',()=>share(p)],['Delete',()=>del(p.id)]].forEach(([t,f])=>{
+      const b=document.createElement('button');b.className='sm sec';b.style.marginBottom='6px';b.textContent=t;b.onclick=f;row.appendChild(b)});
     d.appendChild(row);$('list').appendChild(d);
   });
 }
@@ -71,37 +71,62 @@ async function copy(p){
   try{await navigator.clipboard.writeText(toText(p));alert('Copied. Paste it into Viber or WhatsApp.')}
   catch(e){const t=document.createElement('textarea');t.value=toText(p);document.body.appendChild(t);t.select();document.execCommand('copy');t.remove();alert('Copied.')}
 }
-function share(p){
-  if(navigator.share)navigator.share({title:p.name,text:toText(p)}).catch(()=>{});
-  else copy(p);
-}
+function share(p){if(navigator.share)navigator.share({title:p.name,text:toText(p)}).catch(()=>{});else copy(p)}
 function del(id){if(confirm('Delete this parcel?')){parcels=parcels.filter(p=>p.id!==id);persist();render()}}
 
-function newParcel(){cur={id:Date.now(),points:[]};$('pname').value='';draw();show('rec')}
-function cancel(){if(!cur.points.length||confirm('Discard this parcel?')){cur=null;show('home')}}
+function open_(){draw();show('rec');window.scrollTo(0,0)}
+function newParcel(){cur={id:Date.now(),points:[]};orig=0;$('pname').value='';$('rtitle').textContent='New parcel';open_()}
+function edit(id){const p=parcels.find(x=>x.id===id);cur=JSON.parse(JSON.stringify(p));orig=cur.points.length;$('pname').value=cur.name;$('rtitle').textContent='Continue parcel';open_()}
+function cancel(){stop();if(cur.points.length===orig||confirm('Discard changes?')){cur=null;show('home')}}
 function draw(){
   $('status').textContent='Points recorded: '+cur.points.length;
   $('pts').innerHTML=cur.points.length?cur.points.map((q,i)=>
-    '<div class="pt"><span>'+(i+1)+'</span><span>'+q.lat.toFixed(6)+', '+q.lon.toFixed(6)+'</span><span>±'+q.acc.toFixed(0)+'m</span></div>').join('')
+    '<div class="pt"><span>'+(i+1)+'</span><span>'+q.lat.toFixed(7)+', '+q.lon.toFixed(7)+'</span><span>±'+q.acc.toFixed(1)+'m</span></div>').join('')
     :'<span class="mut">Stand on a corner and tap Record coordinate.</span>';
 }
+
+// Averaged fix: collect GPS readings for up to 20 s, keep the best ones, weight by 1/acc^2
 function record(){
   if(!navigator.geolocation){alert('GPS not available');return}
-  const b=$('recbtn');b.disabled=true;b.textContent='Getting GPS fix…';
-  navigator.geolocation.getCurrentPosition(pos=>{
-    cur.points.push({lat:pos.coords.latitude,lon:pos.coords.longitude,acc:pos.coords.accuracy});
-    b.disabled=false;b.textContent='Record coordinate';draw();
-  },err=>{
-    b.disabled=false;b.textContent='Record coordinate';
-    alert('No GPS fix: '+err.message+'. Check location permission and try outdoors.');
-  },{enableHighAccuracy:true,timeout:30000,maximumAge:0});
+  reads=[];t0=Date.now();
+  $('recbtn').disabled=true;$('recbtn').textContent='Averaging… hold still';
+  $('live').classList.remove('hide');$('lt').textContent='Waiting for GPS…';$('ld').textContent='';
+  watch=navigator.geolocation.watchPosition(pos=>{
+    const c=pos.coords;reads.push({lat:c.latitude,lon:c.longitude,acc:c.accuracy||99});
+    const best=Math.min(...reads.map(r=>r.acc));
+    $('lt').textContent='Best accuracy ±'+best.toFixed(1)+' m';
+    $('ld').textContent=reads.length+' readings · '+Math.max(0,Math.ceil((WINDOW-(Date.now()-t0))/1000))+' s left';
+    if(reads.length>=12&&best<=GOOD&&Date.now()-t0>8000)finish();
+  },err=>{stop();alert('No GPS fix: '+err.message+'. Check location permission and try outdoors.')},
+  {enableHighAccuracy:true,timeout:30000,maximumAge:0});
+  tmr=setTimeout(finish,WINDOW);
+}
+function stop(){
+  if(watch!==null)navigator.geolocation.clearWatch(watch);watch=null;
+  clearTimeout(tmr);tmr=null;
+  $('live').classList.add('hide');$('recbtn').disabled=false;$('recbtn').textContent='Record coordinate';
+}
+function finish(){
+  const r=reads.slice();stop();
+  if(!r.length){alert('No readings received. Try again.');return}
+  const best=Math.min(...r.map(x=>x.acc));
+  const use=r.filter(x=>x.acc<=Math.max(best*1.5,best+2));   // drop poor readings
+  let w=0,la=0,lo=0;
+  use.forEach(x=>{const k=1/(x.acc*x.acc);w+=k;la+=x.lat*k;lo+=x.lon*k});
+  const acc=best; // report best single-reading accuracy (conservative)
+  cur.points.push({lat:la/w,lon:lo/w,acc:acc,n:use.length});
+  draw();
+  if(acc>10)alert('Accuracy only ±'+acc.toFixed(0)+' m. Consider removing this point and retaking it in the open, away from walls and trees.');
 }
 function undo(){cur.points.pop();draw()}
 function save(){
+  stop();
   if(cur.points.length<3&&!confirm('Fewer than 3 points. Save anyway?'))return;
   cur.name=$('pname').value.trim()||('Parcel '+(parcels.length+1));
-  cur.date=new Date().toLocaleString();
-  parcels.push(cur);persist();cur=null;render();show('home');
+  if(!cur.date||!orig)cur.date=new Date().toLocaleString();
+  const i=parcels.findIndex(p=>p.id===cur.id);
+  if(i>=0)parcels[i]=cur;else parcels.push(cur);
+  persist();cur=null;render();show('home');
 }
 render();
 if('serviceWorker' in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js').catch(()=>{});
