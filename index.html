@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<html lang="en"><head>
+<html lang="sq"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Parcel Recorder</title>
+<title>Regjistrues Parcelash</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#1f6b3a">
 <link rel="icon" href="icon-192.png">
@@ -25,21 +25,21 @@ input{font:inherit;width:100%;padding:12px;border-radius:8px;border:2px solid va
 </style></head><body>
 
 <section id="home">
-  <h1>Parcels</h1>
-  <button onclick="newParcel()">New parcel</button>
+  <h1>Parcelat</h1>
+  <button onclick="newParcel()">Parcelë e re</button>
   <div id="list"></div>
 </section>
 
 <section id="rec" class="hide">
-  <h1 id="rtitle">New parcel</h1>
-  <input id="pname" placeholder="Parcel name">
-  <button class="rec" id="recbtn" onclick="record()">Record coordinate</button>
-  <div class="card hide" id="live"><b id="lt"></b><div class="mut" id="ld"></div><button class="sec" onclick="finish()">Accept now</button></div>
-  <div class="mut" id="status">Points recorded: 0</div>
+  <h1 id="rtitle">Parcelë e re</h1>
+  <input id="pname" placeholder="Emri i parcelës">
+  <button class="rec" id="recbtn" onclick="record()">Regjistro koordinatën</button>
+  <div class="card hide" id="live"><b id="lt"></b><div class="mut" id="ld"></div><button class="sec" onclick="finish()">Prano tani</button></div>
+  <div class="mut" id="status">Pika të regjistruara: 0</div>
   <div class="card" id="pts"></div>
-  <button onclick="save()">Save coordinates</button>
-  <button class="sec" onclick="undo()">Remove last point</button>
-  <button class="sec" onclick="cancel()">Cancel</button>
+  <button onclick="save()">Ruaj koordinatat</button>
+  <button class="sec" onclick="undo()">Hiq pikën e fundit</button>
+  <button class="sec" onclick="cancel()">Anulo</button>
 </section>
 
 <script>
@@ -55,60 +55,60 @@ function toText(p){
     p.points.map((q,i)=>(i+1)+','+q.lat.toFixed(8)+','+q.lon.toFixed(8)+','+q.acc.toFixed(1)+','+(q.n||1)).join('\n');
 }
 function render(){
-  $('list').innerHTML=parcels.length?'':'<p class="mut">No parcels yet. Tap New parcel to start.</p>';
+  $('list').innerHTML=parcels.length?'':'<p class="mut">Nuk ka parcela ende. Shtyp "Parcelë e re" për të filluar.</p>';
   parcels.slice().reverse().forEach(p=>{
     const d=document.createElement('div');d.className='card';
-    d.innerHTML='<b></b><div class="mut">'+p.points.length+' points · '+p.date+'</div><pre></pre>';
+    d.innerHTML='<b></b><div class="mut">'+p.points.length+' pika · '+p.date+'</div><pre></pre>';
     d.querySelector('b').textContent=p.name;
     d.querySelector('pre').textContent=toText(p);
     const row=document.createElement('div');
-    [['Continue',()=>edit(p.id)],['Copy',()=>copy(p)],['Share',()=>share(p)],['Delete',()=>del(p.id)]].forEach(([t,f])=>{
+    [['Vazhdo',()=>edit(p.id)],['Kopjo',()=>copy(p)],['Ndaj',()=>share(p)],['Fshij',()=>del(p.id)]].forEach(([t,f])=>{
       const b=document.createElement('button');b.className='sm sec';b.style.marginBottom='6px';b.textContent=t;b.onclick=f;row.appendChild(b)});
     d.appendChild(row);$('list').appendChild(d);
   });
 }
 async function copy(p){
-  try{await navigator.clipboard.writeText(toText(p));alert('Copied. Paste it into Viber or WhatsApp.')}
-  catch(e){const t=document.createElement('textarea');t.value=toText(p);document.body.appendChild(t);t.select();document.execCommand('copy');t.remove();alert('Copied.')}
+  try{await navigator.clipboard.writeText(toText(p));alert('U kopjua. Ngjite në Viber ose WhatsApp.')}
+  catch(e){const t=document.createElement('textarea');t.value=toText(p);document.body.appendChild(t);t.select();document.execCommand('copy');t.remove();alert('U kopjua.')}
 }
 function share(p){if(navigator.share)navigator.share({title:p.name,text:toText(p)}).catch(()=>{});else copy(p)}
-function del(id){if(confirm('Delete this parcel?')){parcels=parcels.filter(p=>p.id!==id);persist();render()}}
+function del(id){if(confirm('Të fshihet kjo parcelë?')){parcels=parcels.filter(p=>p.id!==id);persist();render()}}
 
 function open_(){draw();show('rec');window.scrollTo(0,0)}
-function newParcel(){cur={id:Date.now(),points:[]};orig=0;$('pname').value='';$('rtitle').textContent='New parcel';open_()}
-function edit(id){const p=parcels.find(x=>x.id===id);cur=JSON.parse(JSON.stringify(p));orig=cur.points.length;$('pname').value=cur.name;$('rtitle').textContent='Continue parcel';open_()}
-function cancel(){stop();if(cur.points.length===orig||confirm('Discard changes?')){cur=null;show('home')}}
+function newParcel(){cur={id:Date.now(),points:[]};orig=0;$('pname').value='';$('rtitle').textContent='Parcelë e re';open_()}
+function edit(id){const p=parcels.find(x=>x.id===id);cur=JSON.parse(JSON.stringify(p));orig=cur.points.length;$('pname').value=cur.name;$('rtitle').textContent='Vazhdo parcelën';open_()}
+function cancel(){stop();if(cur.points.length===orig||confirm('Të hidhen poshtë ndryshimet?')){cur=null;show('home')}}
 function draw(){
-  $('status').textContent='Points recorded: '+cur.points.length;
+  $('status').textContent='Pika të regjistruara: '+cur.points.length;
   $('pts').innerHTML=cur.points.length?cur.points.map((q,i)=>
     '<div class="pt"><span>'+(i+1)+'</span><span>'+q.lat.toFixed(7)+', '+q.lon.toFixed(7)+'</span><span>±'+q.acc.toFixed(1)+'m</span></div>').join('')
-    :'<span class="mut">Stand on a corner and tap Record coordinate.</span>';
+    :'<span class="mut">Qëndro në një kënd dhe shtyp "Regjistro koordinatën".</span>';
 }
 
 // Averaged fix: collect GPS readings for up to 20 s, keep the best ones, weight by 1/acc^2
 function record(){
-  if(!navigator.geolocation){alert('GPS not available');return}
+  if(!navigator.geolocation){alert('GPS nuk është i disponueshëm');return}
   reads=[];t0=Date.now();
-  $('recbtn').disabled=true;$('recbtn').textContent='Averaging… hold still';
-  $('live').classList.remove('hide');$('lt').textContent='Waiting for GPS…';$('ld').textContent='';
+  $('recbtn').disabled=true;$('recbtn').textContent='Po mesatarizohet… mos lëviz';
+  $('live').classList.remove('hide');$('lt').textContent='Po pritet GPS…';$('ld').textContent='';
   watch=navigator.geolocation.watchPosition(pos=>{
     const c=pos.coords;reads.push({lat:c.latitude,lon:c.longitude,acc:c.accuracy||99});
     const best=Math.min(...reads.map(r=>r.acc));
-    $('lt').textContent='Best accuracy ±'+best.toFixed(1)+' m';
-    $('ld').textContent=reads.length+' readings · '+Math.max(0,Math.ceil((WINDOW-(Date.now()-t0))/1000))+' s left';
+    $('lt').textContent='Saktësia më e mirë ±'+best.toFixed(1)+' m';
+    $('ld').textContent=reads.length+' matje · '+Math.max(0,Math.ceil((WINDOW-(Date.now()-t0))/1000))+' s mbeten';
     if(reads.length>=12&&best<=GOOD&&Date.now()-t0>8000)finish();
-  },err=>{stop();alert('No GPS fix: '+err.message+'. Check location permission and try outdoors.')},
+  },err=>{stop();alert('Nuk u gjet sinjal GPS: '+err.message+'. Kontrollo lejen e vendndodhjes dhe provo jashtë.')},
   {enableHighAccuracy:true,timeout:30000,maximumAge:0});
   tmr=setTimeout(finish,WINDOW);
 }
 function stop(){
   if(watch!==null)navigator.geolocation.clearWatch(watch);watch=null;
   clearTimeout(tmr);tmr=null;
-  $('live').classList.add('hide');$('recbtn').disabled=false;$('recbtn').textContent='Record coordinate';
+  $('live').classList.add('hide');$('recbtn').disabled=false;$('recbtn').textContent='Regjistro koordinatën';
 }
 function finish(){
   const r=reads.slice();stop();
-  if(!r.length){alert('No readings received. Try again.');return}
+  if(!r.length){alert('Nuk u morën matje. Provo përsëri.');return}
   const best=Math.min(...r.map(x=>x.acc));
   const use=r.filter(x=>x.acc<=Math.max(best*1.5,best+2));   // drop poor readings
   let w=0,la=0,lo=0;
@@ -116,13 +116,13 @@ function finish(){
   const acc=best; // report best single-reading accuracy (conservative)
   cur.points.push({lat:la/w,lon:lo/w,acc:acc,n:use.length});
   draw();
-  if(acc>10)alert('Accuracy only ±'+acc.toFixed(0)+' m. Consider removing this point and retaking it in the open, away from walls and trees.');
+  if(acc>10)alert('Saktësia vetëm ±'+acc.toFixed(0)+' m. Hiqe këtë pikë dhe rimati në hapësirë të hapur, larg mureve dhe pemëve.');
 }
 function undo(){cur.points.pop();draw()}
 function save(){
   stop();
-  if(cur.points.length<3&&!confirm('Fewer than 3 points. Save anyway?'))return;
-  cur.name=$('pname').value.trim()||('Parcel '+(parcels.length+1));
+  if(cur.points.length<3&&!confirm('Më pak se 3 pika. Të ruhet prapë?'))return;
+  cur.name=$('pname').value.trim()||('Parcela '+(parcels.length+1));
   if(!cur.date||!orig)cur.date=new Date().toLocaleString();
   const i=parcels.findIndex(p=>p.id===cur.id);
   if(i>=0)parcels[i]=cur;else parcels.push(cur);
